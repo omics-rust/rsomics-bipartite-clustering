@@ -1,0 +1,99 @@
+use std::collections::HashMap;
+use std::fs::File;
+use std::io::{BufRead, BufReader, Read};
+use std::path::Path;
+
+use rsomics_common::{Result, RsomicsError};
+
+/// Undirected graph with integer-mapped node IDs in first-seen order.
+///
+/// Neighbor lists are deduped in insertion order, matching `nx.Graph` semantics.
+pub struct Graph {
+    pub labels: Vec<String>,
+    pub index: HashMap<String, u32>,
+    /// Neighbors in first-seen insertion order per node (deduped, no self-loops).
+    pub adj: Vec<Vec<u32>>,
+}
+
+impl Graph {
+    pub fn n(&self) -> usize {
+        self.labels.len()
+    }
+
+    pub fn m(&self) -> usize {
+        self.adj.iter().map(|nbrs| nbrs.len()).sum::<usize>() / 2
+    }
+}
+
+/// Parse an undirected edge list, matching `nx.read_edgelist` / `nx.Graph`.
+///
+/// Lines starting with `#` or blank are skipped. Each data line needs at
+/// least two whitespace-separated tokens; extras are ignored. Self-loops are
+/// dropped. Duplicate edges collapse to a simple graph in first-seen order.
+pub fn read_edgelist(path: Option<&Path>) -> Result<Graph> {
+    let reader: Box<dyn BufRead> = match path {
+        None => Box::new(BufReader::new(std::io::stdin())),
+        Some(p) if p == Path::new("-") => Box::new(BufReader::new(std::io::stdin())),
+        Some(p) => Box::new(BufReader::new(File::open(p).map_err(|e| {
+            RsomicsError::Io(std::io::Error::new(
+                e.kind(),
+                format!("{}: {e}", p.display()),
+            ))
+        })?)),
+    };
+    let mut buf = String::new();
+    let mut reader = reader;
+    reader.read_to_string(&mut buf).map_err(RsomicsError::Io)?;
+    read_edgelist_str(&buf)
+}
+
+/// Parse an undirected edge list from an in-memory string. Same semantics as
+/// [`read_edgelist`]; used where the input is already buffered.
+pub fn read_edgelist_str(input: &str) -> Result<Graph> {
+    let mut labels: Vec<String> = Vec::new();
+    let mut index: HashMap<String, u32> = HashMap::new();
+    let mut raw_edges: Vec<(u32, u32)> = Vec::new();
+
+    for (lineno, line) in input.lines().enumerate() {
+        let lineno = lineno + 1;
+        let t = line.trim();
+        if t.is_empty() || t.starts_with('#') {
+            continue;
+        }
+        let mut tokens = t.split_ascii_whitespace();
+        let u_str = tokens.next().unwrap();
+        let v_str = tokens.next().ok_or_else(|| {
+            RsomicsError::InvalidInput(format!("line {lineno}: expected two node labels, got one"))
+        })?;
+        if u_str == v_str {
+            continue;
+        }
+        let u = intern(&mut labels, &mut index, u_str);
+        let v = intern(&mut labels, &mut index, v_str);
+        raw_edges.push((u, v));
+    }
+
+    let n = labels.len();
+    let mut adj: Vec<Vec<u32>> = vec![Vec::new(); n];
+    let mut seen: Vec<std::collections::HashSet<u32>> = vec![Default::default(); n];
+    for (u, v) in raw_edges {
+        if seen[u as usize].insert(v) {
+            adj[u as usize].push(v);
+        }
+        if seen[v as usize].insert(u) {
+            adj[v as usize].push(u);
+        }
+    }
+
+    Ok(Graph { labels, index, adj })
+}
+
+fn intern(labels: &mut Vec<String>, index: &mut HashMap<String, u32>, s: &str) -> u32 {
+    if let Some(&id) = index.get(s) {
+        return id;
+    }
+    let id = labels.len() as u32;
+    labels.push(s.to_owned());
+    index.insert(s.to_owned(), id);
+    id
+}
