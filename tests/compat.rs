@@ -22,6 +22,16 @@ fn graph_from_str(edges: &str) -> Graph {
     io::read_edgelist_str(edges).expect("parse edge list")
 }
 
+/// Latapy on a graph the tests already know to be bipartite; unwraps the guard.
+fn latapy(g: &Graph, nodes: &[u32], mode: Mode) -> Vec<(u32, f64)> {
+    latapy_clustering(g, nodes, mode).expect("bipartite graph")
+}
+
+/// Average on a bipartite graph; unwraps the guard.
+fn avg(g: &Graph, nodes: &[u32], mode: Mode) -> f64 {
+    average_clustering(g, nodes, mode).expect("bipartite graph")
+}
+
 fn all_nodes(g: &Graph) -> Vec<u32> {
     (0..g.n() as u32).collect()
 }
@@ -73,7 +83,7 @@ fn path4_latapy_dot() {
     // nx: all nodes → 0.5
     let g = graph_from_str(PATH4);
     let nodes = all_nodes(&g);
-    let ccs = latapy_clustering(&g, &nodes, Mode::Dot);
+    let ccs = latapy(&g, &nodes, Mode::Dot);
     let m = cc_map(&g, &ccs);
     for label in ["0", "1", "2", "3"] {
         assert_ulp1(m[label], 0.5, &format!("path4 dot node {label}"));
@@ -87,7 +97,7 @@ fn path4_latapy_min_endpoints() {
     //   endpoint 3: symmetric → 1.0
     let g = graph_from_str(PATH4);
     let nodes = all_nodes(&g);
-    let ccs = latapy_clustering(&g, &nodes, Mode::Min);
+    let ccs = latapy(&g, &nodes, Mode::Min);
     let m = cc_map(&g, &ccs);
     assert_ulp1(m["0"], 1.0, "path4 min node 0");
     assert_ulp1(m["3"], 1.0, "path4 min node 3");
@@ -104,11 +114,7 @@ fn path4_robins_alexander() {
 fn path4_average_dot() {
     let g = graph_from_str(PATH4);
     let nodes = all_nodes(&g);
-    assert_ulp1(
-        average_clustering(&g, &nodes, Mode::Dot),
-        0.5,
-        "path4 avg dot",
-    );
+    assert_ulp1(avg(&g, &nodes, Mode::Dot), 0.5, "path4 avg dot");
 }
 
 // ---------------------------------------------------------------------------
@@ -122,7 +128,7 @@ fn star3_latapy_dot() {
     // nx star_graph(3): center=0 → 0.0, leaves=1,2,3 → 1.0
     let g = graph_from_str(STAR3);
     let nodes = all_nodes(&g);
-    let ccs = latapy_clustering(&g, &nodes, Mode::Dot);
+    let ccs = latapy(&g, &nodes, Mode::Dot);
     let m = cc_map(&g, &ccs);
     assert_ulp1(m["0"], 0.0, "star3 dot center");
     assert_ulp1(m["1"], 1.0, "star3 dot leaf 1");
@@ -135,11 +141,7 @@ fn star3_average_dot() {
     // nx: bipartite.average_clustering(star_graph(3)) == 0.75
     let g = graph_from_str(STAR3);
     let nodes = all_nodes(&g);
-    assert_ulp1(
-        average_clustering(&g, &nodes, Mode::Dot),
-        0.75,
-        "star3 avg dot",
-    );
+    assert_ulp1(avg(&g, &nodes, Mode::Dot), 0.75, "star3 avg dot");
 }
 
 // ---------------------------------------------------------------------------
@@ -205,7 +207,7 @@ fn davis_robins_alexander() {
 fn davis_latapy_dot_all_nodes() {
     let g = graph_from_str(DAVIS_EDGES);
     let nodes = all_nodes(&g);
-    let ccs = latapy_clustering(&g, &nodes, Mode::Dot);
+    let ccs = latapy(&g, &nodes, Mode::Dot);
     let m = cc_map(&g, &ccs);
     for (label, want) in DAVIS_DOT {
         assert_ulp1(m[*label], *want, &format!("davis dot {label}"));
@@ -217,7 +219,7 @@ fn davis_latapy_dot_subset() {
     // Test --nodes subset: only E1 and Evelyn_Jefferson.
     let g = graph_from_str(DAVIS_EDGES);
     let nodes = nodes_by_label(&g, &["E1", "Evelyn_Jefferson"]);
-    let ccs = latapy_clustering(&g, &nodes, Mode::Dot);
+    let ccs = latapy(&g, &nodes, Mode::Dot);
     let m = cc_map(&g, &ccs);
     assert_ulp1(m["E1"], 0.3271915584415585, "davis dot E1 subset");
     assert_ulp1(
@@ -231,18 +233,14 @@ fn davis_latapy_dot_subset() {
 fn davis_average_dot() {
     let g = graph_from_str(DAVIS_EDGES);
     let nodes = all_nodes(&g);
-    assert_ulp1(
-        average_clustering(&g, &nodes, Mode::Dot),
-        DAVIS_AVG_DOT,
-        "davis avg dot",
-    );
+    assert_ulp1(avg(&g, &nodes, Mode::Dot), DAVIS_AVG_DOT, "davis avg dot");
 }
 
 #[test]
 fn davis_latapy_min_spot_check() {
     let g = graph_from_str(DAVIS_EDGES);
     let nodes = all_nodes(&g);
-    let ccs = latapy_clustering(&g, &nodes, Mode::Min);
+    let ccs = latapy(&g, &nodes, Mode::Min);
     let m = cc_map(&g, &ccs);
     assert_ulp1(m["Brenda_Rogers"], 0.6250793650793651, "davis min Brenda");
     assert_ulp1(m["E5"], 0.84375, "davis min E5");
@@ -254,7 +252,7 @@ fn davis_latapy_min_spot_check() {
 fn davis_latapy_max_spot_check() {
     let g = graph_from_str(DAVIS_EDGES);
     let nodes = all_nodes(&g);
-    let ccs = latapy_clustering(&g, &nodes, Mode::Max);
+    let ccs = latapy(&g, &nodes, Mode::Max);
     let m = cc_map(&g, &ccs);
     assert_ulp1(m["E5"], 0.5125, "davis max E5");
     assert_ulp1(m["E3"], 0.4956845238095238, "davis max E3");
@@ -353,7 +351,7 @@ const GNMK7_MAX: &[(&str, f64)] = &[
 fn gnmk7_latapy_dot() {
     let g = graph_from_str(GNMK7_EDGES);
     let nodes = all_nodes(&g);
-    let ccs = latapy_clustering(&g, &nodes, Mode::Dot);
+    let ccs = latapy(&g, &nodes, Mode::Dot);
     let m = cc_map(&g, &ccs);
     for (label, want) in GNMK7_DOT {
         assert_ulp1(m[*label], *want, &format!("gnmk7 dot {label}"));
@@ -364,7 +362,7 @@ fn gnmk7_latapy_dot() {
 fn gnmk7_latapy_min() {
     let g = graph_from_str(GNMK7_EDGES);
     let nodes = all_nodes(&g);
-    let ccs = latapy_clustering(&g, &nodes, Mode::Min);
+    let ccs = latapy(&g, &nodes, Mode::Min);
     let m = cc_map(&g, &ccs);
     for (label, want) in GNMK7_MIN {
         assert_ulp1(m[*label], *want, &format!("gnmk7 min {label}"));
@@ -375,7 +373,7 @@ fn gnmk7_latapy_min() {
 fn gnmk7_latapy_max() {
     let g = graph_from_str(GNMK7_EDGES);
     let nodes = all_nodes(&g);
-    let ccs = latapy_clustering(&g, &nodes, Mode::Max);
+    let ccs = latapy(&g, &nodes, Mode::Max);
     let m = cc_map(&g, &ccs);
     for (label, want) in GNMK7_MAX {
         assert_ulp1(m[*label], *want, &format!("gnmk7 max {label}"));
@@ -393,7 +391,7 @@ fn gnmk7_average_dot_17nodes() {
     // Average over the 17 non-isolated nodes that appear in the edge file.
     let g = graph_from_str(GNMK7_EDGES);
     let nodes = all_nodes(&g);
-    let got = average_clustering(&g, &nodes, Mode::Dot);
+    let got = avg(&g, &nodes, Mode::Dot);
     assert_ulp1(got, GNMK7_AVG_DOT_17, "gnmk7 avg dot 17nodes");
 }
 
@@ -438,7 +436,7 @@ const GNMK42_AVG_DOT: f64 = 0.2791338229231086_f64;
 fn gnmk42_latapy_dot() {
     let g = graph_from_str(GNMK42_EDGES);
     let nodes = all_nodes(&g);
-    let ccs = latapy_clustering(&g, &nodes, Mode::Dot);
+    let ccs = latapy(&g, &nodes, Mode::Dot);
     let m = cc_map(&g, &ccs);
     for (label, want) in GNMK42_DOT {
         assert_ulp1(m[*label], *want, &format!("gnmk42 dot {label}"));
@@ -455,11 +453,7 @@ fn gnmk42_robins_alexander() {
 fn gnmk42_average_dot() {
     let g = graph_from_str(GNMK42_EDGES);
     let nodes = all_nodes(&g);
-    assert_ulp1(
-        average_clustering(&g, &nodes, Mode::Dot),
-        GNMK42_AVG_DOT,
-        "gnmk42 avg dot",
-    );
+    assert_ulp1(avg(&g, &nodes, Mode::Dot), GNMK42_AVG_DOT, "gnmk42 avg dot");
 }
 
 // ---------------------------------------------------------------------------
@@ -478,7 +472,7 @@ fn leaf_clustering_is_one() {
     //    cc_dot(N(a),N(c)) = 0. sum=0 → c(a)=0.
     let g = graph_from_str("a b\na c\n");
     let nodes = all_nodes(&g);
-    let ccs = latapy_clustering(&g, &nodes, Mode::Dot);
+    let ccs = latapy(&g, &nodes, Mode::Dot);
     let m = cc_map(&g, &ccs);
     assert_ulp1(m["b"], 1.0, "leaf b clustering");
     assert_ulp1(m["c"], 1.0, "leaf c clustering");
@@ -498,11 +492,7 @@ fn tiny_graph_ra_zero() {
 #[test]
 fn empty_nodes_average_is_zero() {
     let g = graph_from_str(PATH4);
-    assert_ulp1(
-        average_clustering(&g, &[], Mode::Dot),
-        0.0,
-        "empty nodes average",
-    );
+    assert_ulp1(avg(&g, &[], Mode::Dot), 0.0, "empty nodes average");
 }
 
 #[test]
@@ -510,4 +500,76 @@ fn single_edge_graph_zero_ra() {
     // 2-node graph: order < 4 → RA = 0
     let g = graph_from_str("u v\n");
     assert_ulp1(robins_alexander_clustering(&g), 0.0, "single edge RA");
+}
+
+// ---------------------------------------------------------------------------
+// Non-bipartite guard (matches nx.latapy_clustering's `is_bipartite` check)
+//
+// nx 3.6.1:
+//   G = triangle(a-b, b-c, c-a)
+//   bipartite.latapy_clustering(G)   -> NetworkXError("Graph is not bipartite")
+//   bipartite.average_clustering(G)  -> NetworkXError("Graph is not bipartite")
+// Verified against networkx 3.6.1.
+// ---------------------------------------------------------------------------
+
+const TRIANGLE: &str = "a b\nb c\nc a\n";
+
+fn is_not_bipartite_err(e: &rsomics_common::RsomicsError) -> bool {
+    matches!(e, rsomics_common::RsomicsError::InvalidInput(m) if m == "Graph is not bipartite")
+}
+
+#[test]
+fn triangle_latapy_errors_not_bipartite() {
+    let g = graph_from_str(TRIANGLE);
+    let nodes = all_nodes(&g);
+    let err = latapy_clustering(&g, &nodes, Mode::Dot).expect_err("triangle must not be bipartite");
+    assert!(is_not_bipartite_err(&err), "unexpected error: {err}");
+}
+
+#[test]
+fn triangle_average_errors_not_bipartite() {
+    let g = graph_from_str(TRIANGLE);
+    let nodes = all_nodes(&g);
+    let err =
+        average_clustering(&g, &nodes, Mode::Dot).expect_err("triangle must not be bipartite");
+    assert!(is_not_bipartite_err(&err), "unexpected error: {err}");
+}
+
+// ---------------------------------------------------------------------------
+// Self-loops are kept (matching nx.Graph), not dropped.
+//
+// nx 3.6.1:
+//   G.add_edges_from([(a,x),(a,y),(b,x),(b,y),(a,a)])
+//   nx.algorithms.bipartite.is_bipartite(G)                 -> False  (self-loop)
+//   bipartite.robins_alexander_clustering(G)                -> 0.5714285714285714
+//   bipartite.latapy_clustering(G) / average_clustering(G)  -> NetworkXError
+// Verified against networkx 3.6.1. Dropping the self-loop (the old bug) gave
+// is_bipartite=True and RA=1.0 — both wrong.
+// ---------------------------------------------------------------------------
+
+const SELF_LOOP: &str = "a x\na y\nb x\nb y\na a\n";
+const SELF_LOOP_RA: f64 = 0.5714285714285714_f64;
+
+#[test]
+fn self_loop_robins_alexander() {
+    let g = graph_from_str(SELF_LOOP);
+    assert_ulp1(
+        robins_alexander_clustering(&g),
+        SELF_LOOP_RA,
+        "self-loop RA",
+    );
+}
+
+#[test]
+fn self_loop_latapy_and_average_error() {
+    let g = graph_from_str(SELF_LOOP);
+    let nodes = all_nodes(&g);
+    assert!(
+        latapy_clustering(&g, &nodes, Mode::Dot).is_err(),
+        "self-loop graph is not bipartite → latapy must error"
+    );
+    assert!(
+        average_clustering(&g, &nodes, Mode::Dot).is_err(),
+        "self-loop graph is not bipartite → average must error"
+    );
 }

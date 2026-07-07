@@ -8,10 +8,12 @@ use rsomics_common::{Result, RsomicsError};
 /// Undirected graph with integer-mapped node IDs in first-seen order.
 ///
 /// Neighbor lists are deduped in insertion order, matching `nx.Graph` semantics.
+/// Self-loops are kept: a self-loop on `v` places `v` once in `adj[v]`, mirroring
+/// `nx.Graph` where `G[v]` lists `v` once while `degree(v)` counts it twice.
 pub struct Graph {
     pub labels: Vec<String>,
     pub index: HashMap<String, u32>,
-    /// Neighbors in first-seen insertion order per node (deduped, no self-loops).
+    /// Neighbors in first-seen insertion order per node (deduped).
     pub adj: Vec<Vec<u32>>,
 }
 
@@ -20,8 +22,15 @@ impl Graph {
         self.labels.len()
     }
 
+    /// Edge count matching `nx.Graph.size()`: a self-loop is one edge but two
+    /// degree endpoints, so it appears once in `adj` yet must count as two in
+    /// the degree sum.
     pub fn m(&self) -> usize {
-        self.adj.iter().map(|nbrs| nbrs.len()).sum::<usize>() / 2
+        let deg_sum: usize = self.adj.iter().map(|nbrs| nbrs.len()).sum();
+        let self_loops = (0..self.n())
+            .filter(|&i| self.adj[i].contains(&(i as u32)))
+            .count();
+        (deg_sum + self_loops) / 2
     }
 }
 
@@ -29,7 +38,8 @@ impl Graph {
 ///
 /// Lines starting with `#` or blank are skipped. Each data line needs at
 /// least two whitespace-separated tokens; extras are ignored. Self-loops are
-/// dropped. Duplicate edges collapse to a simple graph in first-seen order.
+/// kept (matching `nx.Graph`). Duplicate edges collapse to a simple graph in
+/// first-seen order.
 pub fn read_edgelist(path: Option<&Path>) -> Result<Graph> {
     let reader: Box<dyn BufRead> = match path {
         None => Box::new(BufReader::new(std::io::stdin())),
@@ -65,15 +75,14 @@ pub fn read_edgelist_str(input: &str) -> Result<Graph> {
         let v_str = tokens.next().ok_or_else(|| {
             RsomicsError::InvalidInput(format!("line {lineno}: expected two node labels, got one"))
         })?;
-        if u_str == v_str {
-            continue;
-        }
         let u = intern(&mut labels, &mut index, u_str);
         let v = intern(&mut labels, &mut index, v_str);
         raw_edges.push((u, v));
     }
 
     let n = labels.len();
+    // A self-loop (u == v) yields raw edge (u, u); the first insert records it
+    // once in adj[u], the mirrored insert is a no-op — one entry, as in nx.Graph.
     let mut adj: Vec<Vec<u32>> = vec![Vec::new(); n];
     let mut seen: Vec<std::collections::HashSet<u32>> = vec![Default::default(); n];
     for (u, v) in raw_edges {

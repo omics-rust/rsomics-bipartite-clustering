@@ -12,11 +12,47 @@ pub enum Mode {
     Max,
 }
 
+use rsomics_common::{Result, RsomicsError};
+
 use crate::io::Graph;
+
+/// Two-colourability test matching `networkx.algorithms.bipartite.is_bipartite`.
+///
+/// Every connected component is 2-coloured by DFS; a same-colour edge (a
+/// self-loop is one such edge) makes the graph non-bipartite.
+pub fn is_bipartite(g: &Graph) -> bool {
+    let n = g.n();
+    let mut color = vec![-1i8; n];
+    let mut stack: Vec<u32> = Vec::new();
+
+    for start in 0..n {
+        if color[start] != -1 {
+            continue;
+        }
+        color[start] = 0;
+        stack.push(start as u32);
+        while let Some(u) = stack.pop() {
+            let cu = color[u as usize];
+            for &w in &g.adj[u as usize] {
+                match color[w as usize] {
+                    -1 => {
+                        color[w as usize] = 1 - cu;
+                        stack.push(w);
+                    }
+                    c if c == cu => return false,
+                    _ => {}
+                }
+            }
+        }
+    }
+    true
+}
 
 /// Per-node Latapy bipartite clustering coefficients.
 ///
-/// Matches `networkx.algorithms.bipartite.clustering(G, nodes, mode)` exactly.
+/// Matches `networkx.algorithms.bipartite.clustering(G, nodes, mode)` exactly,
+/// including its leading `is_bipartite` guard (a non-bipartite graph — e.g. one
+/// carrying a self-loop — is a loud error, not a silent value).
 ///
 /// For each node v:
 ///   nbrs2 = { u ∈ N(N(v)) } \ {v}          (two-hop neighbours excluding v)
@@ -26,7 +62,11 @@ use crate::io::Graph;
 ///
 /// Returns one coefficient per node in the `nodes` slice (order-preserving).
 /// If `nodes` is empty the output is also empty (caller interprets as all nodes).
-pub fn latapy_clustering(g: &Graph, nodes: &[u32], mode: Mode) -> Vec<(u32, f64)> {
+pub fn latapy_clustering(g: &Graph, nodes: &[u32], mode: Mode) -> Result<Vec<(u32, f64)>> {
+    if !is_bipartite(g) {
+        return Err(RsomicsError::InvalidInput("Graph is not bipartite".into()));
+    }
+
     // Pre-materialise neighbor sets as bitset-style sorted vecs for O(|nbr|) intersection.
     // For the graph sizes in scope (bipartite social/genomic) this is faster than HashSet.
     let n = g.n();
@@ -77,19 +117,20 @@ pub fn latapy_clustering(g: &Graph, nodes: &[u32], mode: Mode) -> Vec<(u32, f64)
         out.push((v, cc));
     }
 
-    out
+    Ok(out)
 }
 
 /// Mean of Latapy clustering over the given nodes.
 ///
-/// Matches `networkx.algorithms.bipartite.average_clustering(G, nodes, mode)`.
-/// Returns 0.0 if `nodes` is empty.
-pub fn average_clustering(g: &Graph, nodes: &[u32], mode: Mode) -> f64 {
+/// Matches `networkx.algorithms.bipartite.average_clustering(G, nodes, mode)`,
+/// inheriting the `is_bipartite` guard via `latapy_clustering`. Returns 0.0 if
+/// `nodes` is empty (on an otherwise bipartite graph).
+pub fn average_clustering(g: &Graph, nodes: &[u32], mode: Mode) -> Result<f64> {
+    let ccs = latapy_clustering(g, nodes, mode)?;
     if nodes.is_empty() {
-        return 0.0;
+        return Ok(0.0);
     }
-    let ccs = latapy_clustering(g, nodes, mode);
-    ccs.iter().map(|(_, c)| c).sum::<f64>() / nodes.len() as f64
+    Ok(ccs.iter().map(|(_, c)| c).sum::<f64>() / nodes.len() as f64)
 }
 
 /// Robins-Alexander bipartite clustering coefficient.
@@ -229,7 +270,21 @@ mod tests {
             index: HashMap::from([("a".into(), 0)]),
             adj: vec![vec![]],
         };
-        let r = latapy_clustering(&g, &[0], Mode::Dot);
+        let r = latapy_clustering(&g, &[0], Mode::Dot).unwrap();
         assert_eq!(r[0].1, 0.0);
+    }
+
+    #[test]
+    fn triangle_is_not_bipartite() {
+        let g = crate::io::read_edgelist_str("a b\nb c\nc a\n").unwrap();
+        assert!(!is_bipartite(&g));
+        assert!(latapy_clustering(&g, &[0], Mode::Dot).is_err());
+        assert!(average_clustering(&g, &[0], Mode::Dot).is_err());
+    }
+
+    #[test]
+    fn self_loop_is_not_bipartite() {
+        let g = crate::io::read_edgelist_str("a a\na b\n").unwrap();
+        assert!(!is_bipartite(&g));
     }
 }

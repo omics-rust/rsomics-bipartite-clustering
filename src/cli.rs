@@ -117,7 +117,7 @@ impl Cli {
         match self.op {
             Op::Latapy => {
                 let targets = resolve_nodes(&g, self.nodes.as_deref())?;
-                let mut ccs = latapy_clustering(&g, &targets, mode);
+                let mut ccs = latapy_clustering(&g, &targets, mode)?;
                 // Sort by label string, matching nx's dict-iteration-in-sorted-label-order output.
                 ccs.sort_by(|(a, _), (b, _)| g.labels[*a as usize].cmp(&g.labels[*b as usize]));
 
@@ -142,7 +142,7 @@ impl Cli {
 
             Op::Average => {
                 let targets = resolve_nodes(&g, self.nodes.as_deref())?;
-                let value = average_clustering(&g, &targets, mode);
+                let value = average_clustering(&g, &targets, mode)?;
 
                 if !common.json {
                     println!("{value}");
