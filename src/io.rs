@@ -36,7 +36,9 @@ impl Graph {
 
 /// Parse an undirected edge list, matching `nx.read_edgelist` / `nx.Graph`.
 ///
-/// Lines starting with `#` or blank are skipped. Each data line needs at
+/// A `#` anywhere in a line begins a comment: text from the first `#` onward
+/// is dropped before tokenising, so `1 2 # note` yields edge (1, 2). Lines
+/// that are blank after comment stripping are skipped. Each data line needs at
 /// least two whitespace-separated tokens; extras are ignored. Self-loops are
 /// kept (matching `nx.Graph`). Duplicate edges collapse to a simple graph in
 /// first-seen order.
@@ -66,8 +68,9 @@ pub fn read_edgelist_str(input: &str) -> Result<Graph> {
 
     for (lineno, line) in input.lines().enumerate() {
         let lineno = lineno + 1;
-        let t = line.trim();
-        if t.is_empty() || t.starts_with('#') {
+        // nx.parse_edgelist strips a '#' comment anywhere in the line before tokenising.
+        let t = line.split('#').next().unwrap_or("").trim();
+        if t.is_empty() {
             continue;
         }
         let mut tokens = t.split_ascii_whitespace();
@@ -105,4 +108,30 @@ fn intern(labels: &mut Vec<String>, index: &mut HashMap<String, u32>, s: &str) -
     labels.push(s.to_owned());
     index.insert(s.to_owned(), id);
     id
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn normalized(g: &Graph) -> (Vec<String>, Vec<Vec<u32>>) {
+        let mut adj = g.adj.clone();
+        for nbrs in adj.iter_mut() {
+            nbrs.sort_unstable();
+        }
+        (g.labels.clone(), adj)
+    }
+
+    #[test]
+    fn inline_hash_comment_matches_comment_free_graph() {
+        // A '#' mid-line begins a comment: "1 2#c" is edge (1,2) not node "2#c",
+        // a trailing "2 3 # note" ignores the note, and a whole-line comment is
+        // skipped — all matching nx.parse_edgelist.
+        let with_comments =
+            read_edgelist_str("0 1\n1 2#c\n2 3 # note\n# full-line comment\n").unwrap();
+        let clean = read_edgelist_str("0 1\n1 2\n2 3\n").unwrap();
+        assert_eq!(normalized(&with_comments), normalized(&clean));
+        assert_eq!(with_comments.n(), 4);
+        assert_eq!(with_comments.m(), 3);
+    }
 }
